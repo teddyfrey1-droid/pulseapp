@@ -1,30 +1,68 @@
 "use client"
+
 import { Header } from "@/components/pulse/header"
 import { BottomNav } from "@/components/pulse/bottom-nav"
 import { MainGauge } from "@/components/pulse/main-gauge"
 import { CountdownTimer } from "@/components/pulse/countdown-timer"
-import { objectives, calculateTotalPotentialPrime, getCriticalAlerts, currentUser } from "@/lib/demo-data"
-import { Coins, Target, Thermometer, ChevronRight, TrendingUp, Clock } from "lucide-react"
+// On garde getCriticalAlerts du demo-data pour l'instant (car pas encore dans le hook)
+import { getCriticalAlerts } from "@/lib/demo-data"
+// On importe notre nouveau Hook connecté à Firebase
+import { usePulseData } from "@/hooks/usePulseData"
+import { Coins, Target, Thermometer, ChevronRight, TrendingUp, Clock, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 export default function Dashboard() {
-  const totalPotential = calculateTotalPotentialPrime()
+  // Récupération des données en temps réel depuis Firebase
+  const { currentUser, objectives, loading } = usePulseData()
+  
+  // Alertes (reste statique pour le moment pour ne pas casser l'UI)
   const criticalAlerts = getCriticalAlerts()
 
+  // --- LOGIQUE DE CALCUL (Adaptée pour les données dynamiques) ---
+
+  // 1. Calcul du potentiel total (Somme des récompenses de tous les objectifs actifs)
+  const totalPotential = objectives.reduce((sum, obj) => sum + (obj.reward || 0), 0)
+
+  // 2. Calcul du montant débloqué (Somme des paliers débloqués)
   const unlockedPrime = objectives.reduce((total, obj) => {
-    return total + obj.paliers.filter((p) => p.unlocked).reduce((sum, p) => sum + p.reward, 0)
+    return total + (obj.paliers || []).filter((p) => p.unlocked).reduce((sum, p) => sum + p.reward, 0)
   }, 0)
 
-  const pendingPrime = totalPotential - unlockedPrime
-  const totalProgress = objectives.reduce((sum, obj) => sum + (obj.progress / obj.target) * 100, 0) / objectives.length
+  // 3. Reste à gagner
+  const pendingPrime = Math.max(0, totalPotential - unlockedPrime)
+
+  // 4. Progression globale (Moyenne des pourcentages d'avancement)
+  const totalProgress = objectives.length > 0 
+    ? objectives.reduce((sum, obj) => {
+        // Sécurité pour éviter la division par zéro
+        const target = obj.target || 1 
+        // On clippe à 100% pour l'affichage graphique
+        const p = Math.min(100, (obj.progress / target) * 100)
+        return sum + p
+      }, 0) / objectives.length
+    : 0
+
   const activeObjectives = objectives.filter((o) => o.isActive).length
 
+  // Gestion des dates
   const endOfMonth = new Date()
   endOfMonth.setMonth(endOfMonth.getMonth() + 1)
   endOfMonth.setDate(0)
   endOfMonth.setHours(23, 59, 59, 999)
 
   const currentMonth = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
+
+  // --- ÉTAT DE CHARGEMENT ---
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    )
+  }
+
+  // Si pas d'utilisateur connecté (ou erreur), on ne plante pas
+  if (!currentUser) return null 
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -54,7 +92,9 @@ export default function Dashboard() {
         )}
 
         <div className="text-center mb-6">
-          <p className="text-lg font-medium text-muted-foreground mb-1">Bonjour, {currentUser.name.split(" ")[0]}</p>
+          <p className="text-lg font-medium text-muted-foreground mb-1">
+            Bonjour, {currentUser.name ? currentUser.name.split(" ")[0] : "Invité"}
+          </p>
           <h1 className="text-3xl font-bold tracking-tight">Objectif principal</h1>
           <p className="text-sm text-muted-foreground mt-1 capitalize">{currentMonth}</p>
         </div>
@@ -99,7 +139,7 @@ export default function Dashboard() {
               <TrendingUp className="w-4 h-4 text-primary" />
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Potentiel</p>
             </div>
-            <p className="text-xl font-bold text-foreground">{totalPotential}€</p>
+            <p className="text-xl font-bold text-foreground">{totalPotential.toFixed(0)}€</p>
             <p className="text-xs text-muted-foreground">Maximum</p>
           </div>
 
